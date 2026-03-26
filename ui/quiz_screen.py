@@ -209,13 +209,9 @@ class QuizScreen(QWidget):
         self.words_left_seen.clear()
         self.words_left_label.setText(f"Words left: {self.words_left}")
 
-        # Questions progress: bắt đầu từ 0 / số câu tối thiểu session
-        # Normal: target_words câu (mỗi từ hỏi ít nhất 1 lần)
-        # Hardcore: target_words * 2 (1 MC + 1 Typing mỗi từ)
+        # Questions progress
         self.q_answered = 0
-        is_hardcore = hasattr(engine, "fully_cleared")
-        self.q_total = len(engine.session_words) * (2 if is_hardcore else 1)
-        self._update_questions_label()
+        self._recompute_questions_total()
 
         if not self._timer.isActive():
             self._timer.start()
@@ -298,40 +294,37 @@ class QuizScreen(QWidget):
     # ---------------------------
     # Helper: cập nhật questions progress
     # ---------------------------
-    def _update_questions_progress(self, is_correct: bool):
+    def _remaining_questions_from_engine(self) -> int:
         """
-        q_answered tăng 1 mỗi khi trả lời (bất kể đúng sai).
-        q_total tăng thêm số debt mỗi khi trả lời sai,
-        dựa vào debt vừa được thêm vào engine.
+        Remaining question workload based on engine state.
+        This avoids hard-coded debt math and stays correct for both modes.
         """
         engine = self.main_window.engine
-        item = self.current_q.item
-        key = (item.fi, item.en)
 
-        self.q_answered += 1
+        # Remaining debt questions (shared by normal + hardcore)
+        remaining_debt = sum(v for v in engine.repeats_left.values() if v > 0)
 
-        if not is_correct:
-            wcount = engine.session_wrong_count.get(key, 1)
-            is_hardcore = hasattr(engine, "fully_cleared")
-            if is_hardcore:
-                # Hardcore: sai lần 1 → +2, lần 2 → +3, lần 3+ → +2
-                if wcount == 1:
-                    added = 2
-                elif wcount == 2:
-                    added = 3
-                else:
-                    added = 2
-            else:
-                # Normal: sai lần 1 → +3, lần 2 → +3, lần 3+ → +2
-                if wcount == 1:
-                    added = 3
-                elif wcount == 2:
-                    added = 3
-                else:
-                    added = 2
-            self.q_total += added
+        if hasattr(engine, "tasks"):
+            # Hardcore: tasks queue + debt
+            remaining_tasks = len(engine.tasks)
+            return max(0, remaining_tasks + remaining_debt)
 
+        # Normal: unseen new words + debt
+        remaining_new = len(engine.session_words) - engine._new_index
+        return max(0, remaining_new + remaining_debt)
+
+    def _recompute_questions_total(self):
+        # q_total is the current expected final answered count.
+        self.q_total = self.q_answered + self._remaining_questions_from_engine()
         self._update_questions_label()
+
+    def _update_questions_progress(self):
+        """
+        q_answered tăng 1 mỗi khi trả lời (bất kể đúng sai),
+        sau đó q_total được recompute trực tiếp từ state engine.
+        """
+        self.q_answered += 1
+        self._recompute_questions_total()
 
     def _update_questions_label(self):
         self.questions_label.setText(f"Questions: {self.q_answered}/{self.q_total}")
@@ -356,7 +349,7 @@ class QuizScreen(QWidget):
         self.update_header()
 
         self._update_words_left(key)
-        self._update_questions_progress(ok)
+        self._update_questions_progress()
         self.next_btn.setEnabled(True)
 
     def on_submit_typing(self):
@@ -377,7 +370,7 @@ class QuizScreen(QWidget):
         self.update_header()
 
         self._update_words_left(key)
-        self._update_questions_progress(ok)
+        self._update_questions_progress()
 
         self.next_btn.setEnabled(True)
         self.typing_input.clearFocus()
