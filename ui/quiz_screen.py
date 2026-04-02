@@ -116,6 +116,7 @@ class QuizScreen(QWidget):
             btn.setMinimumHeight(46)
             btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
             btn.clicked.connect(lambda _, idx=i: self.on_choose_mc(idx))
+            btn.installEventFilter(self)
             self.mc_buttons.append(btn)
 
         # Feedback
@@ -141,12 +142,44 @@ class QuizScreen(QWidget):
 
         self.setLayout(root)
 
+        self.setFocusPolicy(Qt.StrongFocus)
+
         # ---------------------------
         # Timer
         # ---------------------------
         self._timer = QTimer(self)
         self._timer.setInterval(500)
         self._timer.timeout.connect(self.update_header)
+
+    def _mc_key_to_index(self, key: int):
+        return {
+            Qt.Key_A: 0,
+            Qt.Key_B: 1,
+            Qt.Key_C: 2,
+            Qt.Key_D: 3,
+        }.get(key)
+
+    def _should_handle_mc_hotkeys(self) -> bool:
+        if not self.current_q or self.answered:
+            return False
+        if self.current_q.qtype not in (QType.MC_FI_TO_EN, QType.MC_EN_TO_FI):
+            return False
+        fw = self.focusWidget()
+        if fw in (self.end_btn, self.next_btn):
+            return False
+        return True
+
+    def _try_mc_hotkey(self, event) -> bool:
+        if not self._should_handle_mc_hotkeys():
+            return False
+        idx = self._mc_key_to_index(event.key())
+        if idx is None:
+            return False
+        if idx >= len(self.current_q.options):
+            return False
+        self.on_choose_mc(idx)
+        event.accept()
+        return True
 
     # ---------------------------
     # Event handling
@@ -165,6 +198,9 @@ class QuizScreen(QWidget):
                 w.setParent(None)
 
     def eventFilter(self, obj, event):
+        if event.type() == QEvent.KeyPress and obj in self.mc_buttons:
+            if self._try_mc_hotkey(event):
+                return True
         if obj is self.typing_input and event.type() == QEvent.KeyPress:
             if event.key() in (Qt.Key_Return, Qt.Key_Enter):
                 if self.current_q and self.current_q.qtype == QType.TYPE_EN_TO_FI:
@@ -179,6 +215,8 @@ class QuizScreen(QWidget):
         return super().eventFilter(obj, event)
 
     def keyPressEvent(self, event):
+        if self._try_mc_hotkey(event):
+            return
         if event.key() in (Qt.Key_Return, Qt.Key_Enter):
             if self.current_q and self.current_q.qtype == QType.TYPE_EN_TO_FI:
                 if self.focusWidget() is self.typing_input:
@@ -257,6 +295,7 @@ class QuizScreen(QWidget):
                     self.answer_area.addWidget(btn)
                 else:
                     btn.setVisible(False)
+            self.setFocus()
         else:
             self.typing_input.setEnabled(True)
             self.submit_typing_btn.setEnabled(True)
