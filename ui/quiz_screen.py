@@ -133,7 +133,7 @@ class QuizScreen(QWidget):
 
         self.next_btn = QPushButton("Next")
         self.next_btn.setEnabled(False)
-        self.next_btn.clicked.connect(self.load_question)
+        self.next_btn.clicked.connect(self.on_next_pressed)
 
         bottom.addWidget(self.end_btn)
         bottom.addStretch()
@@ -209,7 +209,7 @@ class QuizScreen(QWidget):
                         event.accept()
                         return True
                     if self.next_btn.isEnabled():
-                        self.load_question()
+                        self.on_next_pressed()
                         event.accept()
                         return True
         return super().eventFilter(obj, event)
@@ -222,6 +222,14 @@ class QuizScreen(QWidget):
                 if self.focusWidget() is self.typing_input:
                     event.accept()
                     return
+            if (
+                self.current_q
+                and self.current_q.qtype in (QType.MC_FI_TO_EN, QType.MC_EN_TO_FI)
+                and not self.answered
+            ):
+                self.on_mc_reveal_answer()
+                event.accept()
+                return
             if self.answered and self.next_btn.isEnabled():
                 self.load_question()
                 event.accept()
@@ -271,7 +279,10 @@ class QuizScreen(QWidget):
         self.current_q = q
         self.answered = False
         self.feedback.setText("")
-        self.next_btn.setEnabled(False)
+        if q.qtype in (QType.MC_FI_TO_EN, QType.MC_EN_TO_FI):
+            self.next_btn.setEnabled(True)
+        else:
+            self.next_btn.setEnabled(False)
         self.update_header()
 
         # Mode label
@@ -371,6 +382,39 @@ class QuizScreen(QWidget):
     # ---------------------------
     # Submit answers
     # ---------------------------
+    def on_next_pressed(self):
+        if (
+            self.current_q
+            and self.current_q.qtype in (QType.MC_FI_TO_EN, QType.MC_EN_TO_FI)
+            and not self.answered
+        ):
+            self.on_mc_reveal_answer()
+            return
+        self.load_question()
+
+    def on_mc_reveal_answer(self):
+        if self.answered or not self.current_q:
+            return
+        if self.current_q.qtype not in (QType.MC_FI_TO_EN, QType.MC_EN_TO_FI):
+            return
+
+        engine = self.main_window.engine
+        ok, msg, _ = engine.submit_mc_reveal()
+        item = self.current_q.item
+        key = (item.fi, item.en)
+
+        self.main_window.stats.record_answer(self.current_q.qtype, item.fi, item.en, ok)
+
+        self.answered = True
+        self.lock_inputs()
+        self.feedback.setText(msg)
+        self.update_header()
+
+        self._update_words_left(key)
+        self._update_questions_progress()
+        self.next_btn.setEnabled(True)
+        self.next_btn.setFocus()
+
     def on_choose_mc(self, idx: int):
         if self.answered or not self.current_q:
             return
@@ -390,6 +434,7 @@ class QuizScreen(QWidget):
         self._update_words_left(key)
         self._update_questions_progress()
         self.next_btn.setEnabled(True)
+        self.next_btn.setFocus()
 
     def on_submit_typing(self):
         if self.answered or not self.current_q:
@@ -414,6 +459,7 @@ class QuizScreen(QWidget):
         self.next_btn.setEnabled(True)
         self.typing_input.clearFocus()
         self.next_btn.setFocus()
+
 
     # ---------------------------
     # Header

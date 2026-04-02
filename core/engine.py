@@ -161,6 +161,19 @@ class QuizEngine:
             return True, "Correct ✅", correct_answer
         return False, f"Not quite 🙂  Correct answer: {correct_answer}", correct_answer
 
+    def submit_mc_reveal(self):
+        """
+        Treat as a wrong attempt: show the correct answer and apply the same
+        debt / stats as choosing incorrectly (for when the user skips guessing).
+        """
+        q = self._require_current()
+        if q.options is None or q.correct_index is None:
+            raise RuntimeError("Current question is not multiple-choice.")
+
+        correct_answer = q.options[q.correct_index]
+        self._apply_result(q.item, False)
+        return False, f"Not quite 🙂  Correct answer: {correct_answer}", correct_answer
+
     def submit_typing(self, user_text: str):
         q = self._require_current()
         if not q.accepted_answers:
